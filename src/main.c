@@ -26,7 +26,6 @@ K_MSGQ_DEFINE(modem_msgq, MSG_SIZE, 10, 4);
 
 // receive buffer for modem's UART
 static char rx_buf[MSG_SIZE] = {0};
-static int rx_buf_index = 0;
 
 /*
  * A build error on this line means your board is unsupported.
@@ -48,31 +47,25 @@ static void modem_uart_cb(const struct device *dev, struct uart_event *event, vo
 	switch (event->type) {
 		case UART_RX_RDY:
 			// received data is ready for prcessing
-			LOG_INF("===== Bytes received: %d\r\n", event->data.rx.len);
-			LOG_INF("offset: %d\r\n", event->data.rx.offset);
-			LOG_INF("rx_buf: %s\r\n", (char *)event->data.rx_buf.buf);
+			// LOG_INF("rx_buf: %s\r\n", (char *)event->data.rx_buf.buf);
 
-			char received_msg[MSG_SIZE] = {0};
+			size_t length = event->data.rx.len;
+			size_t offset = event->data.rx.offset;
+			char s[MSG_SIZE];
+			memcpy(s, event->data.rx_buf.buf + offset, length);
+			s[event->data.rx.len] = '\0';
 
-			int characters_read = 0;
-			int result_index = 0;
-			for (int i = event->data.rx.offset; i < MSG_SIZE; i++) {
-				if (characters_read >= event->data.rx.len) {
+			// remove new lines
+			for (size_t i = 0; i < event->data.rx.len; i++) {
+				if (s[i] == '\n' || s[i] == '\r') {
+					s[i] = '\0';
 					break;
 				}
-
-				char current_char = event->data.rx.buf[i];
-
-				if (current_char == '\n' || current_char == '\r') {
-					received_msg[result_index] = '\0';
-					// reset index
-					result_index = 0;
-					break;
-				}
-
-				received_msg[result_index++] = current_char;
 			}
-			LOG_INF("msg: %s\r\n", (char *)received_msg);
+
+			k_msgq_put(&modem_msgq, &s, K_NO_WAIT);
+
+			LOG_INF("msg: %s\r\n", s);
 			break;
 
 		// Continuous reception is not enabled by default, which means once the receive buffer is full, 
@@ -86,7 +79,11 @@ static void modem_uart_cb(const struct device *dev, struct uart_event *event, vo
 	}
 }
 
-void print_uart(const struct device *dev, char *buf) {
+void modem_read(char *buf) {
+	
+}
+
+void modem_write(const struct device *dev, char *buf) {
 	int msg_len = strlen(buf);
 
 	for (int i = 0; i < msg_len; i++) {
@@ -134,14 +131,11 @@ int main(void)
 		return 0;
 	}
 
-	print_uart(modem, "Device started.\r\n");
+	modem_write(modem, "Device started.\r\n");
 
-	while (1) {
-		ret = gpio_pin_toggle_dt(&led);
-		if (ret < 0) {
-			return 0;
-		}
-		k_msleep(SLEEP_TIME_MS);
+	char received_modem_buf[MSG_SIZE];
+	while (k_msgq_get(&modem_msgq, &received_modem_buf, K_FOREVER) == 0) {
+		LOG_INF("q: %s\r\n", received_modem_buf);
 	}
 	return 0;
 }
