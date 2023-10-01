@@ -103,7 +103,7 @@ static void uart0_cb(const struct device *dev, struct uart_event *event, void *u
 		// Continuous reception is not enabled by default, which means once the receive buffer is full, 
 		// you must manually re-enable UART to enable reception
 		case UART_RX_DISABLED:
-			uart_rx_enable(dev, uart1_rx_buf, sizeof(uart1_rx_buf), 100);
+			uart_rx_enable(dev, uart0_rx_buf, sizeof(uart0_rx_buf), 100);
 			break;
 		
 		default:
@@ -170,7 +170,7 @@ int main(void)
 	}
 
 	uart_write(uart0, "UART0 says hello\r\n");
-	uart_write(uart1, "UART1 says hello\r\n");
+	uart_write(uart1, "AT\r\n");
 
 	
 	k_yield();
