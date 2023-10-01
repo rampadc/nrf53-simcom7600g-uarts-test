@@ -1,3 +1,5 @@
+⚠️ Bad code. DO NOT USE. Archive documentation for my future self only. ⚠️
+
 This example project shows how to use UART1 and UART0 in async mode. UART0 is connected to the nRF5340DK board's USB-to-UART bridge. UART1 is connected to an external SIMCOM7600G module.
 
 This is for my own documentation. There are likely to be better ways to do this. I tried RTT logger to view the UART commands being received from the SIM7600G module but only received gibberish. This is the only approach so far that works for me.
