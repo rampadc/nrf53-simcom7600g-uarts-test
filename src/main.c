@@ -17,7 +17,7 @@ int read_uart_most_recent(uint8_t *msg, int msg_size);
 /* The devicetree node identifier for the "led0" alias. */
 #define LED0_NODE DT_ALIAS(led0)
 
-#define MSG_SIZE	128
+#define MSG_SIZE	256
 
 /*
  * A build error on this line means your board is unsupported.
