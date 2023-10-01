@@ -17,14 +17,7 @@ int read_uart_most_recent(uint8_t *msg, int msg_size);
 /* The devicetree node identifier for the "led0" alias. */
 #define LED0_NODE DT_ALIAS(led0)
 
-#define MSG_SIZE	32
-/* queue to store up to 10 messages */
-K_MSGQ_DEFINE(modem_msgq, MSG_SIZE, 10, 4);
-
-// receive buffer for modem's UART
-static char uart1_rx_buf[MSG_SIZE] = {0};
-static char uart0_rx_buf[MSG_SIZE] = {0};
-static char printout[MSG_SIZE] = {0};
+#define MSG_SIZE	128
 
 /*
  * A build error on this line means your board is unsupported.
@@ -36,6 +29,39 @@ static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 static const struct device *uart1 = DEVICE_DT_GET(DT_NODELABEL(uart1));
 static const struct device *uart0 = DEVICE_DT_GET(DT_NODELABEL(uart0));
 
+/* queue to store up to 10 messages */
+K_MSGQ_DEFINE(uart0_tx_msgq, MSG_SIZE, 10, 4);
+K_MSGQ_DEFINE(uart1_tx_msgq, MSG_SIZE, 10, 4);
+
+// receive buffer for modem's UART
+static char uart1_rx_buf[MSG_SIZE] = {0};
+static char uart0_rx_buf[MSG_SIZE] = {0};
+
+void uart_write(const struct device *dev, char *buf);
+
+void uart0_tx_thread(void) {
+	char tx_msg[MSG_SIZE] = {0};
+	while (1) {
+		if (k_msgq_get(&uart0_tx_msgq, &tx_msg, K_NO_WAIT) == 0) {
+			uart_write(uart0, tx_msg);
+			k_yield();
+		}
+	}
+}
+
+void uart1_tx_thread(void) {
+	char tx_msg[MSG_SIZE] = {0};
+	while (1) {
+		if (k_msgq_get(&uart1_tx_msgq, &tx_msg, K_NO_WAIT) == 0) {
+			uart_write(uart1, tx_msg);
+			k_yield();
+		}
+	}
+}
+
+K_THREAD_DEFINE(uart0_tx, 1024, uart0_tx_thread, NULL, NULL, NULL, 1, 0, 0);
+K_THREAD_DEFINE(uart1_tx, 1024, uart1_tx_thread, NULL, NULL, NULL, 1, 0, 0);
+
 const struct uart_config uart_cfg = {
 	.baudrate = 115200,
 	.parity = UART_CFG_PARITY_NONE,
@@ -44,13 +70,14 @@ const struct uart_config uart_cfg = {
 	.flow_ctrl = UART_CFG_FLOW_CTRL_NONE,
 };
 
-void uart_write(const struct device *dev, char *buf);
 
 static void uart1_cb(const struct device *dev, struct uart_event *event, void *user_data) {
+	char rx_msg[MSG_SIZE] = {0};
 	switch (event->type) {
 		case UART_RX_RDY:
-			// received data is ready for prcessing
-			printk("uart1: %s", (char *)event->data.rx_buf.buf);
+			snprintk(rx_msg, event->data.rx.len, "%s\r\n", event->data.rx.buf + event->data.rx.offset);
+			// received data is ready for prcessing, put into uart1's tx queue for processing
+			k_msgq_put(&uart0_tx_msgq, rx_msg, K_FOREVER);
 			break;
 
 		// Continuous reception is not enabled by default, which means once the receive buffer is full, 
@@ -65,11 +92,12 @@ static void uart1_cb(const struct device *dev, struct uart_event *event, void *u
 }
 
 static void uart0_cb(const struct device *dev, struct uart_event *event, void *user_data) {
+	char rx_msg[MSG_SIZE] = {0};
 	switch (event->type) {
 		case UART_RX_RDY:
-			uart_tx(uart1, event->data.rx.buf + event->data.rx.offset, event->data.rx.len, 100);
-			// snprintk(printout, event->data.rx.len, "%s", event->data.rx.buf);
-			// uart_write(uart1, printout);
+			snprintk(rx_msg, event->data.rx.len, "%s\r\n", event->data.rx.buf + event->data.rx.offset);
+			// received data is ready for prcessing, put into uart1's tx queue for processing
+			k_msgq_put(&uart1_tx_msgq, rx_msg, K_FOREVER);
 			break;
 
 		// Continuous reception is not enabled by default, which means once the receive buffer is full, 
@@ -104,7 +132,6 @@ int main(void)
 		return 0;
 	}
 
-	printk("Configuring UART\r\n");
 	err = uart_configure(uart1, &uart_cfg);
 	if (err) {
 		printk("uart_configure() failed. Error: %d\r\n", err);
@@ -141,9 +168,11 @@ int main(void)
 	if (ret < 0) {
 		return 0;
 	}
-	printk("UART0 (Zephyr Shell) says hello\r\n");
+
+	uart_write(uart0, "UART0 says hello\r\n");
 	uart_write(uart1, "UART1 says hello\r\n");
 
+	
 	k_yield();
 	return 0;
 }
