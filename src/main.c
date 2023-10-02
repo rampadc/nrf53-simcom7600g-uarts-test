@@ -16,7 +16,7 @@
 /* The devicetree node identifier for the "led0" alias. */
 #define LED0_NODE DT_ALIAS(led0)
 
-#define MSG_SIZE	256
+#define MSG_SIZE	64
 
 /*
  * A build error on this line means your board is unsupported.
@@ -33,8 +33,8 @@ K_MSGQ_DEFINE(uart0_tx_msgq, MSG_SIZE, 10, 4);
 K_MSGQ_DEFINE(uart1_tx_msgq, MSG_SIZE, 10, 4);
 
 // receive buffer for modem's UART
-static char uart1_rx_buf[MSG_SIZE] = {0};
-static char uart0_rx_buf[MSG_SIZE] = {0};
+static K_MEM_SLAB_DEFINE(uart1_rx_buf, MSG_SIZE, 3, 4);
+static K_MEM_SLAB_DEFINE(uart0_rx_buf, MSG_SIZE, 3, 4);
 
 void uart_write(const struct device *dev, char *buf);
 
@@ -52,6 +52,7 @@ void uart1_tx_thread(void) {
 	char tx_msg[MSG_SIZE] = {0};
 	while (1) {
 		if (k_msgq_get(&uart1_tx_msgq, &tx_msg, K_NO_WAIT) == 0) {
+			uart_write(uart0, tx_msg);
 			uart_write(uart1, tx_msg);
 			k_yield();
 		}
@@ -72,23 +73,29 @@ const struct uart_config uart_cfg = {
 
 static void uart1_cb(const struct device *dev, struct uart_event *event, void *user_data) {
 	char rx_msg[MSG_SIZE] = {0};
+	int err;
+
 	switch (event->type) {
 		case UART_RX_RDY:
-			snprintk(rx_msg, event->data.rx.len, "%s\r\n", event->data.rx.buf + event->data.rx.offset);
+			snprintk(rx_msg, event->data.rx.len + 1, "%s\r\n", event->data.rx.buf + event->data.rx.offset);
 			// received data is ready for prcessing, put into uart1's tx queue for processing
 			k_msgq_put(&uart0_tx_msgq, rx_msg, K_FOREVER);
 			break;
 
-		// Continuous reception is not enabled by default, which means once the receive buffer is full, 
-		// you must manually re-enable UART to enable reception
-		case UART_RX_DISABLED:
-			uart_rx_enable(dev, uart1_rx_buf, sizeof(uart1_rx_buf), 100);
-			break;
-
 		case UART_RX_BUF_REQUEST:
+		{
+			uint8_t *buf;
+
+			err = k_mem_slab_alloc(&uart1_rx_buf, (void **)&buf, K_NO_WAIT);
+			__ASSERT(err == 0, "Failed to allocate slab");
+
+			err = uart_rx_buf_rsp(uart1, buf, MSG_SIZE);
+			__ASSERT(err == 0, "Failed to provide new buffer");
 			break;
-		
+		}
+
 		case UART_RX_BUF_RELEASED:
+			k_mem_slab_free(&uart1_rx_buf, (void **)&event->data.rx_buf.buf);
 			break;
 		
 		default:
@@ -98,19 +105,29 @@ static void uart1_cb(const struct device *dev, struct uart_event *event, void *u
 
 static void uart0_cb(const struct device *dev, struct uart_event *event, void *user_data) {
 	char rx_msg[MSG_SIZE] = {0};
+	int err;
+
 	switch (event->type) {
 		case UART_RX_RDY:
-			snprintk(rx_msg, event->data.rx.len, "%s\r\n", event->data.rx.buf + event->data.rx.offset);
+			snprintk(rx_msg, event->data.rx.len + 1, "%s\r\n", event->data.rx.buf + event->data.rx.offset);
 			// received data is ready for prcessing, put into uart1's tx queue for processing
 			k_msgq_put(&uart1_tx_msgq, rx_msg, K_FOREVER);
 			break;
+		case UART_RX_BUF_REQUEST:
+		{
+			uint8_t *buf;
 
-		// Continuous reception is not enabled by default, which means once the receive buffer is full, 
-		// you must manually re-enable UART to enable reception
-		case UART_RX_DISABLED:
-			uart_rx_enable(dev, uart0_rx_buf, sizeof(uart0_rx_buf), 100);
+			err = k_mem_slab_alloc(&uart0_rx_buf, (void **)&buf, K_NO_WAIT);
+			__ASSERT(err == 0, "Failed to allocate slab");
+
+			err = uart_rx_buf_rsp(uart0, buf, MSG_SIZE);
+			__ASSERT(err == 0, "Failed to provide new buffer for uart0");
 			break;
-		
+		}
+
+		case UART_RX_BUF_RELEASED:
+			k_mem_slab_free(&uart1_rx_buf, (void **)&event->data.rx_buf.buf);
+			break;		
 		default:
 			break;
 	}
@@ -155,14 +172,20 @@ int main(void)
 		printk("Cannot register uart0 callback. Error: %d\r\n", err);
 	}
 
-	err = uart_rx_enable(uart1, uart1_rx_buf, sizeof(uart1_rx_buf), 100);
+	uint8_t *buf;
+	err = k_mem_slab_alloc(&uart1_rx_buf, (void **)&buf, K_NO_WAIT);
+	__ASSERT(err == 0, "Failed to alloc slab");
+
+	err = uart_rx_enable(uart1, buf, sizeof(uart1_rx_buf), 100);
 	if (err) {
 		printk("UART1 RX failed to enable. Error: %d\r\n", err);
 		return err;
 	}
 	printk("UART1 RX enabled\r\n");
 
-	err = uart_rx_enable(uart0, uart0_rx_buf, sizeof(uart0_rx_buf), 100);
+	err = k_mem_slab_alloc(&uart0_rx_buf, (void **)&buf, K_NO_WAIT);
+	__ASSERT(err == 0, "Failed to alloc slab");
+	err = uart_rx_enable(uart0, buf, sizeof(uart0_rx_buf), 100);
 	if (err) {
 		printk("UART0 RX failed to enable. Error: %d\r\n", err);
 		return err;
