@@ -23,22 +23,3 @@ SIM7600's 5V supply is connected to a separate USB port on my powered USB hub. T
 SIM7600 board: https://www.waveshare.com/sim7600g-h-4g-hat.htm
 
 Jumper config is in the `B` position, connecting the module's TXD/RTX to the Pi's TXD/RTX.
-
-## Problems
-
-- Unreliable UART buffers with characters being out of sequence
-- Losing last `\n` in received UART messages
-
-Example from device:
-
-```
-AT+CFUNC?<\r><\r><\n>
-ERROR<\r>AT+CGPSZ<29><2>‚bŠATkoGP_?<\r><\r><\n>
-+CGPS: 0,1<\r><\n>
-<\r><\n>
-OK<\r>AT<\r><\r><\n>
-OK<\r>AT<\r><\r><\n>
-OK<\r>
-```
-
-The above example shows that the messages sent between UART1<->modem is mostly correct and stable as there are responses, but when displayed on uart0, they are garbeled.

@@ -28,39 +28,16 @@ static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 static const struct device *uart1 = DEVICE_DT_GET(DT_NODELABEL(uart1));
 static const struct device *uart0 = DEVICE_DT_GET(DT_NODELABEL(uart0));
 
-/* queue to store up to 10 messages */
-K_MSGQ_DEFINE(uart0_tx_msgq, MSG_SIZE, 10, 4);
-K_MSGQ_DEFINE(uart1_tx_msgq, MSG_SIZE, 10, 4);
-
 // receive buffer for modem's UART
 static K_MEM_SLAB_DEFINE(uart1_rx_buf, MSG_SIZE, 3, 4);
 static K_MEM_SLAB_DEFINE(uart0_rx_buf, MSG_SIZE, 3, 4);
 
+static char uart1_rx_msg[MSG_SIZE];
+static int uart1_rx_msg_pos;
+static char uart0_rx_msg[MSG_SIZE];
+static int uart0_rx_msg_pos;
+
 void uart_write(const struct device *dev, char *buf);
-
-void uart0_tx_thread(void) {
-	char tx_msg[MSG_SIZE] = {0};
-	while (1) {
-		if (k_msgq_get(&uart0_tx_msgq, &tx_msg, K_NO_WAIT) == 0) {
-			uart_write(uart0, tx_msg);
-			k_yield();
-		}
-	}
-}
-
-void uart1_tx_thread(void) {
-	char tx_msg[MSG_SIZE] = {0};
-	while (1) {
-		if (k_msgq_get(&uart1_tx_msgq, &tx_msg, K_NO_WAIT) == 0) {
-			uart_write(uart0, tx_msg);
-			uart_write(uart1, tx_msg);
-			k_yield();
-		}
-	}
-}
-
-K_THREAD_DEFINE(uart0_tx, 1024, uart0_tx_thread, NULL, NULL, NULL, 1, 0, 0);
-K_THREAD_DEFINE(uart1_tx, 1024, uart1_tx_thread, NULL, NULL, NULL, 1, 0, 0);
 
 const struct uart_config uart_cfg = {
 	.baudrate = 115200,
@@ -76,10 +53,22 @@ static void uart1_cb(const struct device *dev, struct uart_event *event, void *u
 	int err;
 
 	switch (event->type) {
+		case UART_TX_DONE:
+			printk("UART1 TX: %s. Length: %d\r\n", event->data.tx.buf, event->data.tx.len);
+			break;
+
 		case UART_RX_RDY:
 			snprintk(rx_msg, event->data.rx.len + 1, "%s\r\n", event->data.rx.buf + event->data.rx.offset);
-			// received data is ready for prcessing, put into uart1's tx queue for processing
-			k_msgq_put(&uart0_tx_msgq, rx_msg, K_FOREVER);
+			for (int i = 0; i < sizeof(rx_msg); i++) {
+				char c = rx_msg[i];
+				if ((c == '\n' || c == '\r') && uart1_rx_msg_pos > 0) {
+					uart1_rx_msg[uart1_rx_msg_pos] = '\0';
+					printk("uart1 rx'ed: %s\r\n", uart1_rx_msg);
+					uart1_rx_msg_pos = 0;
+				} else if (uart1_rx_msg_pos < (sizeof(uart1_rx_msg) - 1)) {
+					uart1_rx_msg[uart1_rx_msg_pos++] = c;
+				}
+			}
 			break;
 
 		case UART_RX_BUF_REQUEST:
@@ -87,10 +76,16 @@ static void uart1_cb(const struct device *dev, struct uart_event *event, void *u
 			uint8_t *buf;
 
 			err = k_mem_slab_alloc(&uart1_rx_buf, (void **)&buf, K_NO_WAIT);
-			__ASSERT(err == 0, "Failed to allocate slab");
+			if (err) {
+				printk("Failed to allocate slab");
+				return;
+			}
 
 			err = uart_rx_buf_rsp(uart1, buf, MSG_SIZE);
-			__ASSERT(err == 0, "Failed to provide new buffer");
+			if (err) {
+				printk("Failed to provide new buffer");
+				return;
+			}
 			break;
 		}
 
@@ -110,18 +105,38 @@ static void uart0_cb(const struct device *dev, struct uart_event *event, void *u
 	switch (event->type) {
 		case UART_RX_RDY:
 			snprintk(rx_msg, event->data.rx.len + 1, "%s\r\n", event->data.rx.buf + event->data.rx.offset);
-			// received data is ready for prcessing, put into uart1's tx queue for processing
-			k_msgq_put(&uart1_tx_msgq, rx_msg, K_FOREVER);
+			// uart_write(uart1, rx_msg);
+			uart_write(uart1, &rx_msg);
+
+			for (int i = 0; i < sizeof(rx_msg); i++) {
+				char c = rx_msg[i];
+				if ((c == '\n' || c == '\r') && uart0_rx_msg_pos > 0) {
+					uart0_rx_msg[uart0_rx_msg_pos] = '\0';
+					printk("uart0 rx'ed: %s\r\n", uart0_rx_msg);
+					uart_write(uart1, uart0_rx_msg);
+					
+					uart0_rx_msg_pos = 0;
+				} else if (uart0_rx_msg_pos < (sizeof(uart0_rx_msg) - 1)) {
+					uart0_rx_msg[uart0_rx_msg_pos++] = c;
+				}
+			}
 			break;
+
 		case UART_RX_BUF_REQUEST:
 		{
 			uint8_t *buf;
 
 			err = k_mem_slab_alloc(&uart0_rx_buf, (void **)&buf, K_NO_WAIT);
-			__ASSERT(err == 0, "Failed to allocate slab");
+			if (err) {
+				printk("Failed to allocate slab");
+				return;
+			}
 
 			err = uart_rx_buf_rsp(uart0, buf, MSG_SIZE);
-			__ASSERT(err == 0, "Failed to provide new buffer for uart0");
+			if (err) {
+				printk("Failed to provide new buffer");
+				return;
+			}
 			break;
 		}
 
@@ -198,7 +213,7 @@ int main(void)
 	}
 
 	uart_write(uart0, "UART0 says hello\r\n");
-	uart_write(uart1, "AT\r\n");
+	uart_write(uart1, "AT+CFUN?\r\n");
 
 	
 	k_yield();
