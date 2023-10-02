@@ -8,8 +8,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/uart.h>
 #include <string.h>
-
-int read_uart_most_recent(uint8_t *msg, int msg_size);
+#include <zephyr/sys/ring_buffer.h>
 
 /* 1000 msec = 1 sec */
 #define SLEEP_TIME_MS   1000
@@ -84,6 +83,12 @@ static void uart1_cb(const struct device *dev, struct uart_event *event, void *u
 		// you must manually re-enable UART to enable reception
 		case UART_RX_DISABLED:
 			uart_rx_enable(dev, uart1_rx_buf, sizeof(uart1_rx_buf), 100);
+			break;
+
+		case UART_RX_BUF_REQUEST:
+			break;
+		
+		case UART_RX_BUF_RELEASED:
 			break;
 		
 		default:
