@@ -37,6 +37,9 @@ static int uart1_rx_msg_pos;
 static char uart0_rx_msg[MSG_SIZE];
 static int uart0_rx_msg_pos;
 
+K_MSGQ_DEFINE(uart0_tx_msgq, MSG_SIZE, 10, 4);
+K_MSGQ_DEFINE(uart1_tx_msgq, MSG_SIZE, 10, 4);
+
 void uart_write(const struct device *dev, char *buf);
 
 const struct uart_config uart_cfg = {
@@ -46,6 +49,29 @@ const struct uart_config uart_cfg = {
 	.data_bits = UART_CFG_DATA_BITS_8,
 	.flow_ctrl = UART_CFG_FLOW_CTRL_NONE,
 };
+
+void uart0_tx_thread(void) {
+	char tx_msg[MSG_SIZE] = {0};
+	while (1) {
+		if (k_msgq_get(&uart0_tx_msgq, &tx_msg, K_NO_WAIT) == 0) {
+			uart_write(uart0, tx_msg);
+			k_yield();
+		}
+	}
+}
+
+void uart1_tx_thread(void) {
+	char tx_msg[MSG_SIZE] = {0};
+	while (1) {
+		if (k_msgq_get(&uart1_tx_msgq, &tx_msg, K_NO_WAIT) == 0) {
+			uart_write(uart1, tx_msg);
+			k_yield();
+		}
+	}
+}
+
+K_THREAD_DEFINE(uart0_tx, 1024, uart0_tx_thread, NULL, NULL, NULL, 1, 0, 0);
+K_THREAD_DEFINE(uart1_tx, 1024, uart1_tx_thread, NULL, NULL, NULL, 1, 0, 0);
 
 
 static void uart1_cb(const struct device *dev, struct uart_event *event, void *user_data) {
@@ -59,16 +85,19 @@ static void uart1_cb(const struct device *dev, struct uart_event *event, void *u
 
 		case UART_RX_RDY:
 			snprintk(rx_msg, event->data.rx.len + 1, "%s\r\n", event->data.rx.buf + event->data.rx.offset);
-			for (int i = 0; i < sizeof(rx_msg); i++) {
-				char c = rx_msg[i];
-				if ((c == '\n' || c == '\r') && uart1_rx_msg_pos > 0) {
-					uart1_rx_msg[uart1_rx_msg_pos] = '\0';
-					printk("uart1 rx'ed: %s\r\n", uart1_rx_msg);
-					uart1_rx_msg_pos = 0;
-				} else if (uart1_rx_msg_pos < (sizeof(uart1_rx_msg) - 1)) {
-					uart1_rx_msg[uart1_rx_msg_pos++] = c;
-				}
-			}
+			k_msgq_put(&uart0_tx_msgq, rx_msg, K_FOREVER);
+			// for (int i = 0; i < sizeof(rx_msg); i++) {
+			// 	char c = rx_msg[i];
+			// 	if ((c == '\n' || c == '\r') && uart1_rx_msg_pos > 0) {
+			// 		uart1_rx_msg[uart1_rx_msg_pos] = '\0';
+
+			// 		k_msgq_put(&uart0_tx_msgq, rx_msg, K_FOREVER);
+
+			// 		uart1_rx_msg_pos = 0;
+			// 	} else if (uart1_rx_msg_pos < (sizeof(uart1_rx_msg) - 1)) {
+			// 		uart1_rx_msg[uart1_rx_msg_pos++] = c;
+			// 	}
+			// }
 			break;
 
 		case UART_RX_BUF_REQUEST:
@@ -105,21 +134,18 @@ static void uart0_cb(const struct device *dev, struct uart_event *event, void *u
 	switch (event->type) {
 		case UART_RX_RDY:
 			snprintk(rx_msg, event->data.rx.len + 1, "%s\r\n", event->data.rx.buf + event->data.rx.offset);
-			// uart_write(uart1, rx_msg);
-			uart_write(uart1, &rx_msg);
-
-			for (int i = 0; i < sizeof(rx_msg); i++) {
-				char c = rx_msg[i];
-				if ((c == '\n' || c == '\r') && uart0_rx_msg_pos > 0) {
-					uart0_rx_msg[uart0_rx_msg_pos] = '\0';
-					printk("uart0 rx'ed: %s\r\n", uart0_rx_msg);
-					uart_write(uart1, uart0_rx_msg);
-					
-					uart0_rx_msg_pos = 0;
-				} else if (uart0_rx_msg_pos < (sizeof(uart0_rx_msg) - 1)) {
-					uart0_rx_msg[uart0_rx_msg_pos++] = c;
-				}
-			}
+			k_msgq_put(&uart1_tx_msgq, rx_msg, K_FOREVER);
+			// for (int i = 0; i < sizeof(rx_msg); i++) {
+			// 	char c = rx_msg[i];
+			// 	if ((c == '\n' || c == '\r') && uart0_rx_msg_pos > 0) {
+			// 		uart0_rx_msg[uart0_rx_msg_pos] = '\0';
+			// 		printk("uart0 rx'ed: %s\r\n", uart0_rx_msg);
+			// 		k_msgq_put(&uart1_tx_msgq, rx_msg, K_FOREVER);
+			// 		uart0_rx_msg_pos = 0;
+			// 	} else if (uart0_rx_msg_pos < (sizeof(uart0_rx_msg) - 1)) {
+			// 		uart0_rx_msg[uart0_rx_msg_pos++] = c;
+			// 	}
+			// }
 			break;
 
 		case UART_RX_BUF_REQUEST:
@@ -196,7 +222,7 @@ int main(void)
 		printk("UART1 RX failed to enable. Error: %d\r\n", err);
 		return err;
 	}
-	printk("UART1 RX enabled\r\n");
+	// uart_write(uart0, "UART1 RX enabled\r\n");
 
 	err = k_mem_slab_alloc(&uart0_rx_buf, (void **)&buf, K_NO_WAIT);
 	__ASSERT(err == 0, "Failed to alloc slab");
@@ -215,6 +241,10 @@ int main(void)
 	uart_write(uart0, "UART0 says hello\r\n");
 	uart_write(uart1, "AT+CFUN?\r\n");
 
+	while (1) {
+		uart_write(uart1, "hello world\r\n");
+		k_msleep(100);
+	}
 	
 	k_yield();
 	return 0;
