@@ -85,7 +85,10 @@ static void uart1_cb(const struct device *dev, struct uart_event *event, void *u
 
 		case UART_RX_RDY:
 			snprintk(rx_msg, event->data.rx.len + 1, "%s\r\n", event->data.rx.buf + event->data.rx.offset);
-			k_msgq_put(&uart0_tx_msgq, rx_msg, K_FOREVER);
+			while (k_msgq_put(&uart0_tx_msgq, rx_msg, K_NO_WAIT) != 0) {
+				k_msgq_purge(&uart0_tx_msgq);
+			}
+			
 			break;
 
 		case UART_RX_BUF_REQUEST:
@@ -122,7 +125,9 @@ static void uart0_cb(const struct device *dev, struct uart_event *event, void *u
 	switch (event->type) {
 		case UART_RX_RDY:
 			snprintk(rx_msg, event->data.rx.len + 1, "%s\r\n", event->data.rx.buf + event->data.rx.offset);
-			k_msgq_put(&uart1_tx_msgq, rx_msg, K_FOREVER);
+			while (k_msgq_put(&uart1_tx_msgq, rx_msg, K_NO_WAIT) != 0) {
+				k_msgq_purge(&uart1_tx_msgq);
+			}
 			break;
 
 		case UART_RX_BUF_REQUEST:
