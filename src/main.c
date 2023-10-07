@@ -86,18 +86,6 @@ static void uart1_cb(const struct device *dev, struct uart_event *event, void *u
 		case UART_RX_RDY:
 			snprintk(rx_msg, event->data.rx.len + 1, "%s\r\n", event->data.rx.buf + event->data.rx.offset);
 			k_msgq_put(&uart0_tx_msgq, rx_msg, K_FOREVER);
-			// for (int i = 0; i < sizeof(rx_msg); i++) {
-			// 	char c = rx_msg[i];
-			// 	if ((c == '\n' || c == '\r') && uart1_rx_msg_pos > 0) {
-			// 		uart1_rx_msg[uart1_rx_msg_pos] = '\0';
-
-			// 		k_msgq_put(&uart0_tx_msgq, rx_msg, K_FOREVER);
-
-			// 		uart1_rx_msg_pos = 0;
-			// 	} else if (uart1_rx_msg_pos < (sizeof(uart1_rx_msg) - 1)) {
-			// 		uart1_rx_msg[uart1_rx_msg_pos++] = c;
-			// 	}
-			// }
 			break;
 
 		case UART_RX_BUF_REQUEST:
@@ -135,17 +123,6 @@ static void uart0_cb(const struct device *dev, struct uart_event *event, void *u
 		case UART_RX_RDY:
 			snprintk(rx_msg, event->data.rx.len + 1, "%s\r\n", event->data.rx.buf + event->data.rx.offset);
 			k_msgq_put(&uart1_tx_msgq, rx_msg, K_FOREVER);
-			// for (int i = 0; i < sizeof(rx_msg); i++) {
-			// 	char c = rx_msg[i];
-			// 	if ((c == '\n' || c == '\r') && uart0_rx_msg_pos > 0) {
-			// 		uart0_rx_msg[uart0_rx_msg_pos] = '\0';
-			// 		printk("uart0 rx'ed: %s\r\n", uart0_rx_msg);
-			// 		k_msgq_put(&uart1_tx_msgq, rx_msg, K_FOREVER);
-			// 		uart0_rx_msg_pos = 0;
-			// 	} else if (uart0_rx_msg_pos < (sizeof(uart0_rx_msg) - 1)) {
-			// 		uart0_rx_msg[uart0_rx_msg_pos++] = c;
-			// 	}
-			// }
 			break;
 
 		case UART_RX_BUF_REQUEST:
@@ -240,11 +217,6 @@ int main(void)
 
 	uart_write(uart0, "UART0 says hello\r\n");
 	uart_write(uart1, "AT+CFUN?\r\n");
-
-	while (1) {
-		uart_write(uart1, "hello world\r\n");
-		k_msleep(100);
-	}
 	
 	k_yield();
 	return 0;
