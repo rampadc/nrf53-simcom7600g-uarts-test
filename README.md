@@ -1,8 +1,4 @@
-This example project shows how to use UART1 and UART0 in async mode. UART0 is connected to the nRF5340DK board's USB-to-UART bridge. UART1 is connected to an external SIMCOM7600G module.
-
-This is for my own documentation. There are likely to be better ways to do this. I tried RTT logger to view the UART commands being received from the SIM7600G module but only received gibberish. 
-
-In this project, UART0's RX is sent to UART1's TX, which is forwarded to SIM7600G's RX. Effectively, I'm using the nRF53DK as an expensive UART bridge that doesn't work all the time.
+This example project shows how to use UART1 to talk to SIM7600G using Zephyr's modem library. Because Nordic is using 3.3.99, or a forked version of Zephyr, one of the library path needed to be changed.
 
 ## Hardware
 

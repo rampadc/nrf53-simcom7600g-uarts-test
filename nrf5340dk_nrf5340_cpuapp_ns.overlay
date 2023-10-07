@@ -6,6 +6,11 @@
 uart1: &uart1 {
 	compatible = "nordic,nrf-uarte";
 	pinctrl-0 = <&uart1_default>;
+
+    modem: modem {
+        compatible = "zephyr,gsm-ppp";
+        status = "okay";
+    };
 };
 &gpio_fwd {
     uart {
